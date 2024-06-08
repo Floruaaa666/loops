@@ -53,7 +53,7 @@ __global__ void __find_explicit_zeros(setup_t config,
       for (auto nz : config.atoms(mm)) {
         auto kk_a = a_indices[nz];
           for (auto nz_b = b_offsets[nn]; nz_b < b_offsets[nn + 1]; ++nz_b) {
-            if(kk_a == b_indices[nz_b]&&(a_values[nz] == 0 || b_values[nz_b] == 0)){
+            if(kk_a == b_indices[nz_b]&&(a_values[nz] != 0 && b_values[nz_b] != 0)&&!found){
               ++explicit_zeros_per_row[mm];
               found = true;
             }
