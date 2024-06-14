@@ -21,6 +21,10 @@
 #include <loops/util/device.hxx>
 #include <loops/memory.hxx>
 #include <iostream>
+#include <stdio.h>
+#include <cub/cub.cuh>
+
+#include <array>
 
 // #define tests 1
 #define SPGEMM_TILE_SIZE 32
@@ -192,17 +196,19 @@ __global__ void __thrad_mapped_row_col_pairs_v1(setup_t config,
   __shared__ index_t shared_A_cols[SPGEMM_TILE_SIZE * SPGEMM_TILE_SIZE];
   __shared__ index_t shared_B_rows[SPGEMM_TILE_SIZE * SPGEMM_TILE_SIZE];
 
+  __shared__ type_t shared_A_values[SPGEMM_TILE_SIZE * SPGEMM_TILE_SIZE];
+  __shared__ type_t shared_B_values[SPGEMM_TILE_SIZE * SPGEMM_TILE_SIZE];
+
   // Keep track of the column indices of the non-zeros in the m0th row of C, if the colmun as a non-zero element, set the flag to 1, else 0
   __shared__ int C_m0_flag[SPGEMM_TILE_SIZE];
 
   int tx = threadIdx.x, bx = blockIdx.x;
   // For every block: load ONE row of A into shared memory, load as much of B as possible into shared memory
-  
   auto m = bx;
 
   C_m0_flag[tx] = 0;
   __syncthreads();
-
+  
   // Load the mth row of A into shared memory
   if(m < a_rows){
     auto col_arr_start = a_offsets[m];
@@ -211,6 +217,7 @@ __global__ void __thrad_mapped_row_col_pairs_v1(setup_t config,
 
     // Every thread loads one element of the mth row of A into shared memory
     shared_A_cols[tx] = a_indices[col_arr_start + tx];
+    shared_A_values[tx] = a_values[col_arr_start + tx];
     __syncthreads();
   }
 
@@ -220,6 +227,7 @@ __global__ void __thrad_mapped_row_col_pairs_v1(setup_t config,
   auto row_arr_end = b_offsets[n + 1];
   for(int k0 = row_arr_start; k0 < row_arr_end; ++k0){
     shared_B_rows[k0] = b_indices[k0];
+    shared_B_values[k0] = b_values[k0];
   }
   __syncthreads();
 
@@ -229,57 +237,73 @@ __global__ void __thrad_mapped_row_col_pairs_v1(setup_t config,
       auto start = b_offsets[0];
       for(int k0 = 0; k0 < b_nnz; ++k0){
         // if(shared_B_rows[k0] != b_indices[start + k0]){
-          printf("shared_B_rows[%d] = %d  b_indices[%d] = %d\n", k0, shared_B_rows[k0], start + k0, b_indices[start + k0]);
+          printf("shared_B_values[%d] = %f  b_values[%d] = %f\n", k0, shared_B_values[k0], start + k0, b_values[start + k0]);
         // }
       }
     }
-  }*/
+  }
+  */
 
-  std::array <int, 8> helperArray;
+  std::array <int, 10> helperArray;
+  std::array <float, 4> valueArray;
   if(m < a_rows){
     int n = tx;
     auto row_arr_start = b_offsets[n];
     auto row_arr_end = b_offsets[n + 1];
     
-    auto sum = 0;
+    float sum = 0;
 
     for(int row_arr_itr_b = row_arr_start; row_arr_itr_b < row_arr_end; ++row_arr_itr_b){ // Iterate over all the elements in nth column of B
 
-      // TODO: Can put this part outside the current for loop?
       auto col_arr_start = a_offsets[m];
       auto col_arr_end = a_offsets[m + 1];
       auto range = col_arr_end - col_arr_start;
 
       for(auto col_arr_itr_a = 0; col_arr_itr_a < range; ++col_arr_itr_a){
         if((shared_A_cols[col_arr_itr_a] == shared_B_rows[row_arr_itr_b])){
+          sum += shared_A_values[col_arr_itr_a] * shared_B_values[row_arr_itr_b];
 
-          sum += a_values[col_arr_itr_a] * b_values[row_arr_itr_b];
-
-          /*
-           if(bx == 1){
-            helperArray[0] = m;
-            helperArray[1] = n;
-            helperArray[2] = col_arr_itr_a;
-            helperArray[3] = shared_A_cols[col_arr_itr_a];
-            helperArray[4] = row_arr_itr_b - row_arr_start;
-            helperArray[5] = shared_B_rows[row_arr_itr_b];
-            helperArray[6] = C_n_nnz_per_block[n];
-
-            printf("m(bx): %d, n(tx): %d, col_arr_itr_a: %d\nshared_A_cols[%d]: %d, shared_B_rows[%d]: %d\nC_n_nnz_per_block[%d]: %d\n", helperArray[0], helperArray[1], helperArray[2], helperArray[2], helperArray[3], helperArray[4], helperArray[5], helperArray[1], helperArray[6]);
-          }*/
+          C_m0_flag[tx] = 1;
 
         }
       }
     }
 
-    C_m0_flag[tx] = (sum != 0);
+    /*
+    if(bx == 30 && sum != 0){
+      helperArray[0] = m;
+      helperArray[1] = n;
+      valueArray[0] = sum;
+
+      printf("(m, n): (%d, %d)\nsum: %f\n", helperArray[0], helperArray[1], valueArray[0]);
+    }
+    */
+
+    // C_m0_flag[tx] = (sum != 0);
     __syncthreads();
 
-    typedef cub::BlockReduce<int, SPGEMM_TILE_SIZE> BlockReduce;
-    __shared__ typename BlockReduce::TempStorage temp_storage;
-    int m0_col_idx_c = BlockReduce(temp_storage).Sum(C_m0_flag);
+    /*
+    if(bx == 30 && tx == 0){
+      for(int i = 0; i < SPGEMM_TILE_SIZE; ++i){
+        if(C_m0_flag[i] == 1){
+          printf("C_m0_flag[%d]: %d\n", i, C_m0_flag[i]);
+        }
+      }
+    }
+    */
 
-    int col_arr_idx_c = m0_col_idx_c - 1 + a_offsets[m];
+    typedef cub::BlockScan<int, SPGEMM_TILE_SIZE> BlockScan;
+    __shared__ typename BlockScan::TempStorage temp_storage;
+    int m0_col_idx_c;
+    BlockScan(temp_storage).InclusiveSum(C_m0_flag[tx], m0_col_idx_c);
+
+    /*
+    if(bx == 30){
+      printf("tx: %d, m0_col_idx_c: %d\n", tx, m0_col_idx_c);
+    }
+    */
+
+    int col_arr_idx_c = m0_col_idx_c - 1 + c_offsets[m];
 
     if(C_m0_flag[tx]){
       c_indices[col_arr_idx_c] = tx;
@@ -287,20 +311,21 @@ __global__ void __thrad_mapped_row_col_pairs_v1(setup_t config,
     }
     __syncthreads();
 
+    /*
+    if(bx == 30 && tx == 0){
+      for(int i = 0; i < c_offsets[m + 1] - c_offsets[m]; ++i){
+        printf("c_indices[%d]: %d, c_values[%d]: %f\n", i, c_indices[i], i, c_values[i]);
+      }
+    }
+    */
+
   }
   __syncthreads();
-
-  // typedef cub::BlockReduce<int, SPGEMM_TILE_SIZE> BlockReduce;
-  // __shared__ typename BlockReduce::TempStorage temp_storage;
-  // int C_nnz_per_row = BlockReduce(temp_storage).Sum(C_n_nnz);
-
-  // for(int i = 0; i < gridDim.x; ++i){
-  //   if(bx == i && tx == 0){
-  //     printf("bx: %d, C_nnz_per_row: %d\n", bx, C_nnz_per_row);
-  //   }
-  // }
-
 }
+
+
+
+
 
 /*
 template <typename setup_t,
@@ -583,7 +608,9 @@ void thread_mapped_v2(csr_t<index_t, offset_t, type_t>& csr,
                                   index_t, offset_t>;
   setup_t config(csr.offsets.data().get(), csr.rows, csr.nnzs);
 
-  std::size_t grid_size = (csr.rows + block_size - 1) / block_size;
+  // std::size_t grid_size = (csr.rows + block_size - 1) / block_size;
+  std::size_t grid_size = 32;
+
   printf("grid_size: %ld\n", grid_size);
 
   launch::non_cooperative(

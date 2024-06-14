@@ -1006,6 +1006,7 @@ __global__ void __estimate_nnz_row_col_pairs_v4(setup_t config,
 
 
 // Precalculate the column indices of C
+/*
 template <typename setup_t,
           typename index_t,
           typename offset_t,
@@ -1205,7 +1206,7 @@ __global__ void __precalculate_c_col_indices(setup_t config,
   }
   __syncthreads();
 }
-
+*/
 
 /**
  * @brief Estimate the nnz of output matrix C.
@@ -1307,8 +1308,6 @@ void estimate_nnz_test_v3(csr_t<index_t, offset_t, type_t>& csr,
                    int* c_nnz_per_tile,
                    cudaStream_t stream = 0) {
 
-
-  // Create a schedule.
   constexpr std::size_t block_size = TILE_SIZE;
   // constexpr dim3 block_size(TILE_SIZE, TILE_SIZE, 1);
 
@@ -1319,7 +1318,11 @@ void estimate_nnz_test_v3(csr_t<index_t, offset_t, type_t>& csr,
 
   // dim3 grid_size((csc.cols + block_size.x - 1) / block_size.x, (csr.rows + block_size.y - 1) / block_size.y, 1);
   // dim3 grid_size((csc.cols + block_size.x - 1) / block_size.x, csr.rows, 1);
-  std::size_t grid_size = (csr.rows + block_size - 1) / block_size;
+
+
+
+  // std::size_t grid_size = (csr.rows + block_size - 1) / block_size;
+  std::size_t grid_size = 32;
   printf("grid_size: %ld\n", grid_size);
 
 
@@ -1334,6 +1337,7 @@ void estimate_nnz_test_v3(csr_t<index_t, offset_t, type_t>& csr,
   cudaStreamSynchronize(stream);
 }
 
+
 /**
  * @brief Precalculate the column indices array of C
  *
@@ -1346,6 +1350,7 @@ void estimate_nnz_test_v3(csr_t<index_t, offset_t, type_t>& csr,
  * @param C Output matrix C (GPU).
  * @param stream CUDA stream.
  */
+/*
 template <typename index_t, typename offset_t, typename type_t>
 void precalculate_c_col_indices(csr_t<index_t, offset_t, type_t>& csr,
                    csc_t<index_t, offset_t, type_t>& csc,
@@ -1375,6 +1380,7 @@ void precalculate_c_col_indices(csr_t<index_t, offset_t, type_t>& csr,
 
   cudaStreamSynchronize(stream);
 }
+*/
 
 // template <typename offset_t>
 void scanNnzC(int* c_nnz_per_tile, int* c_offsets, std::size_t c_rows){
